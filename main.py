@@ -1,4 +1,6 @@
 import os
+import hmac
+import hashlib
 from datetime import datetime
 
 import httpx
@@ -17,7 +19,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID", "")
-ADMIN_KEY = os.getenv("ADMIN_KEY", "dev-admin-key-deyisin")  # /admin/* səhifələrinə giriş üçün
+ADMIN_KEY = os.getenv("ADMIN_KEY", "dev-admin-key-deyisin")
 CARD_NUMBER = os.getenv("CARD_NUMBER", "5522099369926134")
 CARD_HOLDER = os.getenv("CARD_HOLDER", "")
 CARD_BANK = os.getenv("CARD_BANK", "ABB")
@@ -44,6 +46,23 @@ def get_conn():
 
 def put_conn(conn):
     db_pool.putconn(conn)
+
+
+# ===================== ŞİFRƏ HASH (əlavə paket lazım deyil, stdlib) =====================
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return salt.hex() + "$" + dk.hex()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        salt_hex, hash_hex = stored.split("$")
+        salt = bytes.fromhex(salt_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+        return hmac.compare_digest(dk.hex(), hash_hex)
+    except Exception:
+        return False
 
 
 def init_db():
@@ -77,9 +96,12 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS users (
                 email TEXT PRIMARY KEY,
                 name TEXT,
+                password_hash TEXT,
                 balance NUMERIC NOT NULL DEFAULT 0
             )"""
         )
+        # köhnə bazalarda password_hash sütunu yoxdursa əlavə et
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
         c.execute(
             """CREATE TABLE IF NOT EXISTS topups (
                 topup_id SERIAL PRIMARY KEY,
@@ -103,14 +125,24 @@ def current_user(request: Request):
     return request.session.get("user")
 
 
-def ensure_user_row(email: str, name: str):
+def get_user_row(email: str):
+    conn = get_conn()
+    try:
+        c = conn.cursor(cursor_factory=RealDictCursor)
+        c.execute("SELECT * FROM users WHERE email = %s", (email,))
+        return c.fetchone()
+    finally:
+        put_conn(conn)
+
+
+def ensure_user_row(email: str, name: str, password_hash=None):
     conn = get_conn()
     try:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO users (email, name, balance) VALUES (%s, %s, 0) "
+            "INSERT INTO users (email, name, password_hash, balance) VALUES (%s, %s, %s, 0) "
             "ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name",
-            (email, name),
+            (email, name, password_hash),
         )
         conn.commit()
     finally:
@@ -118,117 +150,101 @@ def ensure_user_row(email: str, name: str):
 
 
 def get_balance(email: str) -> float:
-    conn = get_conn()
-    try:
-        c = conn.cursor(cursor_factory=RealDictCursor)
-        c.execute("SELECT balance FROM users WHERE email = %s", (email,))
-        row = c.fetchone()
-        return float(row["balance"]) if row else 0.0
-    finally:
-        put_conn(conn)
+    row = get_user_row(email)
+    return float(row["balance"]) if row else 0.0
 
 
-# ===================== DESIGN =====================
+# ===================== DESIGN (orijinal tünd mövzu saxlanılıb) =====================
 PAGE_CSS = """
-:root { --ink:#10182B; --paper:#FFFFFF; --bg:#EEF2FB; --brand:#3B4CCB; --brand-dark:#2532A6; --accent:#FF6A3D; --muted:#6B7280; --line:#E3E8F5; --radius:10px; }
+:root { --ink:#0E1116; --paper:#F6F4EE; --acid:#C8FF4D; --coral:#FF5C39; --muted:#6B7280; --card:#161A22; --radius:4px; --line:#262B36; }
 * { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font-family:'Space Grotesk',sans-serif; -webkit-font-smoothing:antialiased; }
+body { margin:0; background:var(--ink); color:var(--paper); font-family:'Space Grotesk',sans-serif; -webkit-font-smoothing:antialiased; }
 .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
 a { color:inherit; text-decoration:none; }
-.topbar { background:var(--paper); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:30; }
-.topbar-inner { display:flex; justify-content:space-between; align-items:center; height:72px; max-width:1080px; margin:0 auto; padding:0 24px; }
-.brand { display:flex; align-items:center; gap:8px; font-weight:700; font-size:20px; }
-.brand-mark { color:var(--brand); font-size:24px; }
-.brand-name span:first-child { color:var(--ink); }
-.brand-name span:last-child { color:var(--brand); }
+.topbar { border-bottom:1px solid var(--line); position:sticky; top:0; background:rgba(14,17,22,0.92); backdrop-filter:blur(6px); z-index:30; }
+.topbar-inner { display:flex; justify-content:space-between; align-items:center; height:64px; max-width:1080px; margin:0 auto; padding:0 24px; }
+.brand { display:flex; align-items:center; gap:8px; font-weight:700; letter-spacing:0.04em; }
+.brand-mark { color:var(--acid); font-size:22px; }
 .burger { width:40px; height:40px; border:none; background:transparent; cursor:pointer; display:flex; flex-direction:column; justify-content:center; gap:5px; }
-.burger span { display:block; height:2px; background:var(--ink); border-radius:2px; }
-.login-btn { background:transparent; border:1px solid var(--brand); color:var(--brand); font-weight:600; padding:9px 18px; border-radius:var(--radius); font-size:14px; }
+.burger span { display:block; height:2px; background:var(--paper); border-radius:2px; }
+.login-btn { background:var(--acid); color:var(--ink); font-weight:600; padding:9px 18px; border-radius:var(--radius); font-size:14px; }
 
-/* slide-out menu */
-.menu-overlay { position:fixed; inset:0; background:rgba(16,24,43,0.45); display:none; z-index:40; }
+.menu-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:none; z-index:40; }
 .menu-overlay.open { display:block; }
-.side-menu { position:fixed; top:0; right:0; height:100%; width:300px; max-width:85vw; background:#fff; z-index:50; transform:translateX(100%); transition:transform .25s ease; padding:24px 0; overflow-y:auto; }
+.side-menu { position:fixed; top:0; right:0; height:100%; width:290px; max-width:85vw; background:var(--card); z-index:50; transform:translateX(100%); transition:transform .25s ease; padding:20px 0; overflow-y:auto; border-left:1px solid var(--line); }
 .side-menu.open { transform:translateX(0); }
-.side-menu a, .side-menu .menu-balance { display:flex; align-items:center; gap:12px; padding:14px 24px; font-size:15px; color:var(--ink); font-weight:500; }
-.side-menu a:hover { background:var(--bg); }
-.side-menu .menu-balance { font-weight:700; background:var(--brand); color:#fff; margin-bottom:8px; }
-.side-menu hr { border:none; border-top:1px solid var(--line); margin:8px 0; }
+.side-menu a, .side-menu .menu-balance { display:flex; align-items:center; gap:12px; padding:14px 22px; font-size:15px; color:var(--paper); font-weight:500; }
+.side-menu a:hover { background:rgba(255,255,255,0.04); }
+.side-menu .menu-balance { font-weight:700; background:var(--acid); color:var(--ink); margin-bottom:6px; }
+.side-menu hr { border:none; border-top:1px solid var(--line); margin:6px 0; }
 
-.balance-bar { background:var(--brand); color:#fff; text-align:center; padding:14px; font-weight:700; font-size:17px; }
+.balance-bar { background:var(--card); border-bottom:1px solid var(--line); color:var(--acid); text-align:center; padding:12px; font-weight:600; font-size:14px; }
+.balance-bar a { text-decoration:underline; color:var(--paper); }
 
-.hero { padding:64px 0 40px; text-align:center; }
-.hero h1 { font-size:clamp(28px,5vw,44px); margin:0 0 14px; font-weight:700; }
-.hero p { color:var(--muted); max-width:560px; margin:0 auto; font-size:16px; line-height:1.6; }
+.hero { padding:88px 0 0; }
+.eyebrow { font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.18em; color:var(--acid); margin:0 0 16px; }
+.hero h1 { font-size:clamp(34px,6vw,58px); line-height:1.05; margin:0 0 20px; font-weight:700; letter-spacing:-0.01em; }
+.hero-sub { max-width:520px; color:#B7BCC6; font-size:17px; line-height:1.6; margin:0 0 32px; }
+.cta { display:inline-flex; align-items:center; gap:10px; background:var(--acid); color:var(--ink); font-weight:600; padding:14px 24px; border-radius:var(--radius); font-size:15px; border:none; cursor:pointer; }
+.cta.secondary { background:transparent; border:1px solid #2D3340; color:var(--paper); }
 
-.login-wrap { padding:48px 24px 64px; display:flex; justify-content:center; }
-.login-card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:36px; max-width:400px; width:100%; box-shadow:0 10px 30px rgba(16,24,43,0.06); }
+.login-wrap { padding:64px 0; display:flex; justify-content:center; }
+.login-card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:36px; max-width:400px; width:100%; }
 .login-card h2 { margin:0 0 8px; font-size:21px; }
 .login-card p.sub { color:var(--muted); font-size:14px; margin:0 0 24px; }
-.field { display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3a3f4d; margin-bottom:16px; }
-.field input, .field select { background:#fff; border:1px solid var(--line); border-radius:var(--radius); padding:11px 12px; color:var(--ink); font-family:'Space Grotesk',sans-serif; font-size:14px; }
-.field input:focus { outline:2px solid var(--brand); outline-offset:1px; }
-.btn-primary { width:100%; background:var(--brand); color:#fff; border:none; border-radius:var(--radius); padding:13px 14px; font-weight:600; font-size:15px; cursor:pointer; }
-.btn-primary:hover { background:var(--brand-dark); }
-.google-btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; border:1px solid var(--line); color:#1F1F1F; font-weight:600; padding:12px 18px; border-radius:var(--radius); font-size:14px; width:100%; margin-top:4px; }
+.field { display:flex; flex-direction:column; gap:6px; font-size:13px; color:#B7BCC6; margin-bottom:16px; }
+.field input { background:var(--ink); border:1px solid #2D3340; border-radius:var(--radius); padding:11px 12px; color:var(--paper); font-family:'Space Grotesk',sans-serif; font-size:14px; }
+.field input:focus { outline:2px solid var(--acid); outline-offset:1px; }
+.btn-primary { width:100%; background:var(--acid); color:var(--ink); border:none; border-radius:var(--radius); padding:13px 14px; font-weight:700; font-size:15px; cursor:pointer; }
+.google-btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; border:none; color:#1F1F1F; font-weight:600; padding:12px 18px; border-radius:var(--radius); font-size:14px; width:100%; margin-top:14px; }
 .divider { text-align:center; color:var(--muted); font-size:12px; margin:18px 0; }
 .login-card .switch { text-align:center; font-size:13px; color:var(--muted); margin-top:18px; }
-.login-card .switch a { color:var(--brand); font-weight:600; }
+.login-card .switch a { color:var(--acid); font-weight:600; }
+.error-box { background:rgba(255,92,57,0.12); border:1px solid var(--coral); color:var(--coral); padding:10px 14px; border-radius:var(--radius); font-size:13px; margin-bottom:16px; }
 
-.perks { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; padding:0 0 56px; max-width:1080px; margin:0 auto; }
-.perk { background:#fff; border:1px solid var(--line); border-radius:12px; padding:22px; }
-.perk h3 { margin:0 0 6px; font-size:15px; }
-.perk p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
-
-.catalog { padding:24px 0 56px; }
-.cat-block { margin-bottom:40px; }
-.cat-title { font-size:19px; margin:0 0 16px; font-weight:700; }
+.catalog { padding:56px 0; }
+.cat-block { margin-bottom:48px; }
+.cat-title { font-size:22px; margin:0 0 20px; padding-bottom:12px; border-bottom:1px solid var(--line); }
 .cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
-.product-card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:8px; }
+.product-card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; display:flex; flex-direction:column; gap:8px; }
 .product-top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
 .product-top h3 { margin:0; font-size:15px; }
-.price { color:var(--brand); font-weight:700; font-size:14px; white-space:nowrap; }
+.price { font-family:'IBM Plex Mono',monospace; color:var(--acid); font-size:14px; white-space:nowrap; }
 .product-desc { margin:0; font-size:13px; color:var(--muted); }
-.empty-state { color:var(--muted); text-align:center; padding:48px 0; }
+.empty-state { color:var(--muted); text-align:center; padding:40px 0; }
 
-.order-form-section { padding:24px 0 56px; max-width:680px; margin:0 auto; }
-.platform-tabs { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px; }
-.platform-tab { background:#fff; border:1px solid var(--line); border-radius:var(--radius); padding:12px 16px; font-size:14px; font-weight:600; }
-.platform-tab.active { background:var(--brand); color:#fff; border-color:var(--brand); }
-.form-card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:24px; }
-.hint { font-size:12px; color:var(--muted); margin:4px 0 0; }
+.order-form-section { padding:32px 0 64px; max-width:680px; margin:0 auto; }
+.form-card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:24px; }
+.form-card select { width:100%; background:var(--ink); border:1px solid #2D3340; border-radius:var(--radius); padding:11px 12px; color:var(--paper); font-size:14px; }
+.hint { font-size:12px; color:var(--muted); margin:10px 0 0; }
 
 .tabs-row { display:flex; gap:8px; overflow-x:auto; padding:20px 0 4px; }
-.tab-btn { white-space:nowrap; padding:10px 16px; border-radius:var(--radius); font-size:14px; font-weight:600; background:#fff; border:1px solid var(--line); }
-.tab-btn.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+.tab-btn { white-space:nowrap; padding:10px 16px; border-radius:var(--radius); font-size:14px; font-weight:600; background:var(--card); border:1px solid var(--line); color:var(--paper); }
+.tab-btn.active { background:var(--acid); color:var(--ink); border-color:var(--acid); }
 .search-bar { display:flex; gap:8px; margin:16px 0 20px; }
-.search-bar input { flex:1; border:1px solid var(--line); border-radius:var(--radius); padding:11px 14px; font-size:14px; }
-.search-bar button { background:var(--brand); color:#fff; border:none; border-radius:var(--radius); padding:0 18px; font-weight:600; }
+.search-bar input { flex:1; background:var(--ink); border:1px solid var(--line); border-radius:var(--radius); padding:11px 14px; font-size:14px; color:var(--paper); }
+.search-bar button { background:var(--acid); color:var(--ink); border:none; border-radius:var(--radius); padding:0 18px; font-weight:700; }
 
-table.orders-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--line); }
-table.orders-table th { text-align:left; background:var(--bg); padding:12px 14px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+table.orders-table { width:100%; border-collapse:collapse; background:var(--card); border-radius:var(--radius); overflow:hidden; border:1px solid var(--line); }
+table.orders-table th { text-align:left; background:#1B202B; padding:12px 14px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
 table.orders-table td { padding:14px; font-size:13px; border-top:1px solid var(--line); vertical-align:top; }
-.status-pill { background:#E6F4EA; color:#1E7E34; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
-.status-pill.pending { background:#FFF4E0; color:#B36B00; }
-.status-pill.cancelled { background:#FBE5E3; color:#C0392B; }
+.status-pill { background:rgba(200,255,77,0.15); color:var(--acid); padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+.status-pill.pending { background:rgba(255,92,57,0.15); color:var(--coral); }
 
-.balance-page { padding:32px 0 64px; max-width:520px; margin:0 auto; }
+.balance-page { padding:40px 0 64px; max-width:520px; margin:0 auto; }
 .balance-page h1 { font-size:22px; margin:0 0 4px; }
 .balance-page .sub { color:var(--muted); font-size:14px; margin:0 0 24px; }
-.bank-tabs { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
-.bank-tab { padding:10px 16px; border-radius:999px; border:1px solid var(--line); background:#fff; font-size:13px; font-weight:600; }
-.bank-tab.active { background:var(--ink); color:#fff; border-color:var(--ink); }
-.card-display { background:linear-gradient(135deg,var(--brand),var(--brand-dark)); border-radius:14px; padding:24px; color:#fff; margin-bottom:8px; position:relative; }
-.card-bank { font-size:13px; opacity:.8; margin-bottom:22px; }
-.card-number { font-size:21px; letter-spacing:0.06em; margin-bottom:14px; font-weight:600; }
-.card-holder { font-size:13px; opacity:.85; }
-.copy-btn { position:absolute; top:20px; right:20px; background:rgba(255,255,255,0.18); border:none; color:#fff; padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+.card-display { background:linear-gradient(135deg,#1B2030,#0E1116); border:1px solid #2D3340; border-radius:8px; padding:22px; margin-bottom:6px; position:relative; }
+.card-bank { font-size:13px; color:var(--muted); margin-bottom:18px; }
+.card-number { font-family:'IBM Plex Mono',monospace; font-size:20px; letter-spacing:0.08em; margin-bottom:14px; }
+.card-holder { font-size:13px; color:#B7BCC6; }
+.copy-btn { position:absolute; top:18px; right:18px; background:rgba(255,255,255,0.08); border:1px solid #2D3340; color:var(--paper); padding:6px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
 .copy-hint { font-size:12px; color:var(--muted); margin:10px 0 0; }
-.notice-box { background:#FFF9E8; border:1px solid #F4E2A4; border-radius:10px; padding:16px 18px; font-size:13px; color:#7A5C00; margin-top:24px; }
+.notice-box { background:rgba(200,255,77,0.06); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; font-size:13px; color:#B7BCC6; margin-top:24px; }
 .notice-box p { margin:6px 0; }
 
-.footer { padding:32px 0 48px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); text-align:center; }
-@media (max-width:640px){ .cat-grid{grid-template-columns:1fr;} .perks{grid-template-columns:1fr 1fr;} }
+.footer { padding:32px 0 48px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
+@media (max-width:640px){ .cat-grid{grid-template-columns:1fr;} }
 """
 
 PAGE_HEAD = """<meta charset="UTF-8">
@@ -264,6 +280,7 @@ def side_menu_html(user, balance=0):
     else:
         items = """
         <a href="/login">🔑 Daxil ol</a>
+        <a href="/register">📝 Qeydiyyat</a>
         <a href="/#xidmetler">📋 Xidmətlər</a>
         """
     return f"""
@@ -282,9 +299,7 @@ def topbar(user, balance=0):
     return f"""
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/"><span class="brand-mark">&#9670;</span>
-      <span class="brand-name"><span>Boost</span><span>Panel</span></span>
-    </a>
+    <a class="brand" href="/"><span class="brand-mark">&#10209;</span><span class="brand-name">BOOST<span style="color:var(--acid);">PANEL</span></span></a>
     {right}
   </div>
 </header>
@@ -292,8 +307,16 @@ def topbar(user, balance=0):
 """
 
 
+def google_btn_html():
+    return """<a href="/login/google" class="google-btn">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.17.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Google ilə daxil ol
+    </a>"""
+
+
 # ===================== PAGE RENDERERS =====================
-def render_login() -> str:
+def render_login(error=None) -> str:
+    error_html = f'<div class="error-box">{error}</div>' if error else ""
     return f"""<!DOCTYPE html>
 <html lang="az"><head><title>Daxil ol — {BRAND_NAME}</title>{PAGE_HEAD}</head>
 <body>
@@ -301,11 +324,50 @@ def render_login() -> str:
 <section class="login-wrap">
   <div class="login-card">
     <h2>Hesabınıza daxil olun</h2>
-    <p class="sub">Sifariş vermək və balansınızı izləmək üçün daxil olun.</p>
-    <a href="/login/google" class="google-btn">
-      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.17.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
-      Google ilə daxil ol
-    </a>
+    <p class="sub">Email və şifrənizlə, ya da Google hesabınızla daxil olun.</p>
+    {error_html}
+    <form method="post" action="/login">
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" required>
+      </label>
+      <label class="field"><span>Şifrə</span>
+        <input type="password" name="password" required>
+      </label>
+      <button type="submit" class="btn-primary">Daxil ol</button>
+    </form>
+    {google_btn_html()}
+    <p class="switch">Hesabınız yoxdur? <a href="/register">Qeydiyyatdan keçin</a></p>
+  </div>
+</section>
+{MENU_JS}
+</body></html>"""
+
+
+def render_register(error=None) -> str:
+    error_html = f'<div class="error-box">{error}</div>' if error else ""
+    return f"""<!DOCTYPE html>
+<html lang="az"><head><title>Qeydiyyat — {BRAND_NAME}</title>{PAGE_HEAD}</head>
+<body>
+{topbar(None)}
+<section class="login-wrap">
+  <div class="login-card">
+    <h2>Hesab yaradın</h2>
+    <p class="sub">Email və şifrə ilə qeydiyyatdan keçin.</p>
+    {error_html}
+    <form method="post" action="/register">
+      <label class="field"><span>Ad</span>
+        <input type="text" name="name" required>
+      </label>
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" required>
+      </label>
+      <label class="field"><span>Şifrə</span>
+        <input type="password" name="password" minlength="6" required>
+      </label>
+      <button type="submit" class="btn-primary">Qeydiyyatdan keç</button>
+    </form>
+    {google_btn_html()}
+    <p class="switch">Artıq hesabınız var? <a href="/login">Daxil olun</a></p>
   </div>
 </section>
 {MENU_JS}
@@ -315,31 +377,17 @@ def render_login() -> str:
 def render_home(categories: dict, user) -> str:
     bal = get_balance(user["email"]) if user else 0
     if user:
-        balance_bar = f'<div class="balance-bar">Balansınız: {bal:.2f} ₼ &nbsp;·&nbsp; <a href="/balance" style="text-decoration:underline;">Artır</a></div>'
+        balance_bar = f'<div class="balance-bar">Balansınız: {bal:.2f} ₼ &nbsp;·&nbsp; <a href="/balance">Artır</a></div>'
         hero = ""
     else:
         balance_bar = ""
-        hero = """
+        hero = f"""
         <section class="hero wrap">
-          <h1>Sosial media hesabınızı sürətlə böyüdün</h1>
-          <p>TikTok, Instagram, Telegram və YouTube üçün takipçi, bəyəni və izlənmə xidmətləri — sürətli başlanğıc, izlənə bilən sifariş statusu.</p>
+          <p class="eyebrow">İZLƏNMƏ · BƏYƏNİ · TAKİPÇİ</p>
+          <h1>Hesabınız böyüsün,<br>siz işinizlə məşğul olun.</h1>
+          <p class="hero-sub">TikTok, Instagram, Telegram və YouTube üçün sürətli, dayanıqlı artım xidmətləri. Sifariş ver, linki yapışdır, geri qalanı bizdə.</p>
+          <a href="/register" class="cta">Qeydiyyatdan keç →</a>
         </section>
-        <div class="login-wrap" style="padding-top:8px;">
-          <div class="login-card" style="text-align:center;">
-            <h2>Başlamaq üçün daxil olun</h2>
-            <p class="sub">Sifariş vermək üçün Google hesabınızla qoşulun.</p>
-            <a href="/login/google" class="google-btn">
-              <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.17.29-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
-              Google ilə daxil ol
-            </a>
-          </div>
-        </div>
-        <div class="perks wrap">
-          <div class="perk"><h3>Sürətli başlanğıc</h3><p>Sifarişlər adətən qısa müddətdə işə düşür.</p></div>
-          <div class="perk"><h3>İzlənə bilən status</h3><p>Hər sifarişin gedişatını "Sifarişlərim" bölməsindən izləyin.</p></div>
-          <div class="perk"><h3>Sadə balans sistemi</h3><p>Bir dəfə balans artırın, istədiyiniz qədər sifariş verin.</p></div>
-          <div class="perk"><h3>Dəstək</h3><p>Suallarınız üçün bizimlə əlaqə saxlayın.</p></div>
-        </div>
         """
 
     if categories:
@@ -371,14 +419,11 @@ def render_home(categories: dict, user) -> str:
 </body></html>"""
 
 
-def render_order_form(categories: dict, user, selected_product=None) -> str:
+def render_order_form(categories: dict, user) -> str:
     bal = get_balance(user["email"])
     options = []
     for category, products in categories.items():
-        opts = "".join(
-            f'<option value="{p["product_id"]}" {"selected" if selected_product and selected_product["product_id"]==p["product_id"] else ""}>{p["name"]} — {p["price"]} ₼</option>'
-            for p in products
-        )
+        opts = "".join(f'<option value="{p["product_id"]}">{p["name"]} — {p["price"]} ₼</option>' for p in products)
         options.append(f'<optgroup label="{category}">{opts}</optgroup>')
     select_html = "".join(options) if options else '<option disabled>Xidmət yoxdur</option>'
 
@@ -386,7 +431,7 @@ def render_order_form(categories: dict, user, selected_product=None) -> str:
 <html lang="az"><head><title>Yeni Sifariş — {BRAND_NAME}</title>{PAGE_HEAD}</head>
 <body>
 {topbar(user, bal)}
-<div class="balance-bar">Balansınız: {bal:.2f} ₼ &nbsp;·&nbsp; <a href="/balance" style="text-decoration:underline;">Artır</a></div>
+<div class="balance-bar">Balansınız: {bal:.2f} ₼ &nbsp;·&nbsp; <a href="/balance">Artır</a></div>
 <section class="order-form-section wrap">
   <h1 style="font-size:22px;margin:24px 0 18px;">Yeni Sifariş</h1>
   <div class="form-card">
@@ -417,7 +462,7 @@ def render_balance_page(user, history) -> str:
 
     rows = "".join(
         f"""<tr><td>#{t['topup_id']}</td><td>{t['created_at'][:16]}</td><td>{t['amount']} ₼</td>
-        <td><span class="status-pill {'pending' if t['status']=='Yoxlanılır' else ('cancelled' if t['status']=='Rədd edildi' else '')}">{t['status']}</span></td></tr>"""
+        <td><span class="status-pill {'pending' if t['status']=='Yoxlanılır' else ''}">{t['status']}</span></td></tr>"""
         for t in history
     ) or '<tr><td colspan="4" class="empty-state">Hələ balans artırma sorğunuz yoxdur.</td></tr>'
 
@@ -429,17 +474,13 @@ def render_balance_page(user, history) -> str:
   <h1>Balans artır</h1>
   <p class="sub">Cari balansınız: <strong>{bal:.2f} ₼</strong></p>
 
-  <div class="bank-tabs">
-    <span class="bank-tab active">{CARD_BANK}</span>
-  </div>
-
   <div class="card-display">
     <button class="copy-btn" onclick="copyCard()">Kopyala</button>
     <div class="card-bank">{CARD_BANK} kart</div>
     <div class="card-number" id="cardNum">{pretty_card}</div>
     {holder_html}
   </div>
-  <p class="copy-hint">Yuxarıdakı karta məbləği köçürün, sonra aşağıdakı formu doldurub qəbz şəklini yükləyin. Admin təsdiqlədikdən sonra balansınıza əlavə olunacaq.</p>
+  <p class="copy-hint">Yuxarıdakı karta məbləği köçürün, sonra aşağıdakı formu doldurub qəbz şəklini yükləyin.</p>
 
   <div class="form-card" style="margin-top:24px;">
     <form method="post" action="/balance/topup" enctype="multipart/form-data">
@@ -485,7 +526,7 @@ def render_orders_page(user, orders, active_tab="all") -> str:
     )
 
     if not orders:
-        body = '<p class="empty-state">Hələ heç bir sifarişiniz yoxdur. <a href="/order" style="color:var(--brand);font-weight:600;">İlk sifarişinizi verin →</a></p>'
+        body = '<p class="empty-state">Hələ heç bir sifarişiniz yoxdur. <a href="/order" style="color:var(--acid);font-weight:700;">İlk sifarişinizi verin →</a></p>'
     else:
         rows = "".join(
             f"""<tr>
@@ -532,6 +573,37 @@ def login_page():
     return HTMLResponse(render_login())
 
 
+@app.post("/login")
+def login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
+    email = email.strip().lower()
+    row = get_user_row(email)
+    if not row or not row.get("password_hash") or not verify_password(password, row["password_hash"]):
+        return HTMLResponse(render_login(error="Email və ya şifrə yanlışdır."))
+    request.session["user"] = {"email": email, "name": row["name"] or email}
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/register")
+def register_page():
+    return HTMLResponse(render_register())
+
+
+@app.post("/register")
+def register_submit(request: Request, name: str = Form(...), email: str = Form(...), password: str = Form(...)):
+    email = email.strip().lower()
+    if len(password) < 6:
+        return HTMLResponse(render_register(error="Şifrə ən azı 6 simvol olmalıdır."))
+
+    existing = get_user_row(email)
+    if existing and existing.get("password_hash"):
+        return HTMLResponse(render_register(error="Bu email artıq qeydiyyatdan keçib. Daxil olun."))
+
+    pw_hash = hash_password(password)
+    ensure_user_row(email, name, password_hash=pw_hash)
+    request.session["user"] = {"email": email, "name": name}
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/login/google")
 async def login_google(request: Request):
     redirect_uri = request.url_for("auth_callback")
@@ -542,10 +614,10 @@ async def login_google(request: Request):
 async def auth_callback(request: Request):
     token = await oauth.google.authorize_access_token(request)
     userinfo = token.get("userinfo") or {}
-    email = userinfo.get("email", "")
+    email = (userinfo.get("email") or "").strip().lower()
     name = userinfo.get("name", email or "İstifadəçi")
     request.session["user"] = {"email": email, "name": name}
-    ensure_user_row(email, name)
+    ensure_user_row(email, name)  # password_hash=None saxlanılır, dəyişdirmir
     return RedirectResponse(url="/")
 
 
@@ -678,11 +750,7 @@ def balance_page(request: Request):
 
 
 @app.post("/balance/topup")
-async def submit_topup(
-    request: Request,
-    amount: float = Form(...),
-    receipt: UploadFile = File(...),
-):
+async def submit_topup(request: Request, amount: float = Form(...), receipt: UploadFile = File(...)):
     user = current_user(request)
     if not user:
         return RedirectResponse(url="/login")
@@ -705,7 +773,7 @@ async def submit_topup(
             f"💳 Balans artırma sorğusu #{topup_id}\n"
             f"👤 {user['name']} ({user['email']})\n"
             f"💰 Məbləğ: {amount} ₼\n"
-            f"Təsdiq üçün: /admin/topups?key=...&id={topup_id}&action=approve"
+            f"Təsdiq: /admin/topups?key=...&id={topup_id}&action=approve"
         )
         try:
             async with httpx.AsyncClient() as client:
@@ -732,7 +800,7 @@ def thanks_page(request: Request, order_id: int):
   <p class="sub">SİFARİŞ #{order_id}</p>
   <h1>Qəbul edildi</h1>
   <p class="sub">Sifarişiniz qısa zamanda işə düşəcək. Statusunu "Sifarişlərim" bölməsindən izləyə bilərsiniz.</p>
-  <a href="/orders" class="btn-primary" style="display:inline-block;width:auto;padding:12px 24px;">Sifarişlərimə bax</a>
+  <a href="/orders" class="cta">Sifarişlərimə bax</a>
 </section>
 {MENU_JS}
 </body></html>""")
