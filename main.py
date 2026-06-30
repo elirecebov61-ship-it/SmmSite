@@ -12,6 +12,11 @@ from fastapi.templating import Jinja2Templates
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/eren_smm")
 
 app = FastAPI(title="SMM Panel")
+
+# Railway/Git bəzən boş alt-qovluqları (məs. static/js) izləmir, ona görə
+# qovluq yoxdursa serveri çökdürmək əvəzinə avtomatik yaradırıq.
+os.makedirs("static/css", exist_ok=True)
+os.makedirs("static/js", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
