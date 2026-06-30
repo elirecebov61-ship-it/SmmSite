@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boost — Sosial Media Artım Paneli</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <span class="brand-mark">⟁</span>
+      <span class="brand-name">BOOST</span>
+    </div>
+    <nav class="topnav">
+      <a href="#xidmetler">Xidmətlər</a>
+      <a href="#nece-isleyir">Necə işləyir</a>
+      <a href="#sorgu">Sifariş izlə</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap hero-inner">
+    <p class="eyebrow">İZLƏNMƏ · BƏYƏNİ · TAKİPÇİ</p>
+    <h1>Hesabınız böyüsün,<br>siz işinizlə məşğul olun.</h1>
+    <p class="hero-sub">TikTok, Instagram, Telegram və YouTube üçün sürətli, dayanıqlı artım xidmətləri. Sifariş ver, linki yapışdır, geri qalanı bizdə.</p>
+    <a href="#xidmetler" class="cta">Xidmətlərə bax ↓</a>
+  </div>
+  <div class="hero-tape" aria-hidden="true">
+    <div class="tape-track">
+      <span>TIKTOK</span><span>·</span><span>INSTAGRAM</span><span>·</span><span>TELEGRAM</span><span>·</span><span>YOUTUBE</span><span>·</span>
+      <span>TIKTOK</span><span>·</span><span>INSTAGRAM</span><span>·</span><span>TELEGRAM</span><span>·</span><span>YOUTUBE</span><span>·</span>
+    </div>
+  </div>
+</section>
+
+<section id="xidmetler" class="catalog wrap">
+  {% if categories %}
+    {% for category, products in categories.items() %}
+    <div class="cat-block">
+      <h2 class="cat-title">{{ category }}</h2>
+      <div class="cat-grid">
+        {% for p in products %}
+        <form class="product-card" method="post" action="/order">
+          <input type="hidden" name="product_id" value="{{ p.product_id }}">
+          <div class="product-top">
+            <h3>{{ p.name }}</h3>
+            <span class="price">{{ p.price }} ₼</span>
+          </div>
+          {% if p.description %}<p class="product-desc">{{ p.description }}</p>{% endif %}
+          <label class="field">
+            <span>Link</span>
+            <input type="text" name="profile_link" placeholder="https://..." required>
+          </label>
+          <label class="field">
+            <span>Miqdar</span>
+            <input type="number" name="quantity" value="1" min="1" required>
+          </label>
+          <button type="submit" class="order-btn">Sifariş et →</button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty-state">Hələ aktiv xidmət yoxdur. Tezliklə əlavə olunacaq.</p>
+  {% endif %}
+</section>
+
+<section id="nece-isleyir" class="howto wrap">
+  <h2>Necə işləyir</h2>
+  <div class="howto-grid">
+    <div class="howto-step">
+      <span class="step-no">01</span>
+      <h3>Xidməti seç</h3>
+      <p>Platformanı və miqdarı seç, linkini yapışdır.</p>
+    </div>
+    <div class="howto-step">
+      <span class="step-no">02</span>
+      <h3>Ödə</h3>
+      <p>Sifariş yarananda ödəniş üçün admin sizinlə əlaqə saxlayır.</p>
+    </div>
+    <div class="howto-step">
+      <span class="step-no">03</span>
+      <h3>İzlə</h3>
+      <p>Sifariş nömrəsi ilə statusu canlı izlə.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="footer wrap">
+  <p>© {{ 2026 }} Boost Panel · Dəstək üçün Telegram botumuza yazın.</p>
+</footer>
+
+</body>
+</html>
+
