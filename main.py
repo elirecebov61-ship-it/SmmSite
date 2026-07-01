@@ -51,6 +51,9 @@ def init_db():
                     "total_orders INTEGER DEFAULT 0","created_at TEXT"]:
             try: c.execute(f"ALTER TABLE panel_users ADD COLUMN IF NOT EXISTS {col}")
             except: conn.rollback()
+        for col2 in ["min_qty INTEGER DEFAULT 10","max_qty INTEGER DEFAULT 100000","description TEXT"]:
+            try: c.execute(f"ALTER TABLE products ADD COLUMN IF NOT EXISTS {col2}")
+            except: conn.rollback()
         c.execute("""CREATE TABLE IF NOT EXISTS products (
             product_id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
             price NUMERIC NOT NULL, min_qty INTEGER DEFAULT 10,
@@ -129,7 +132,7 @@ a{color:inherit;text-decoration:none;}
 .wrap{max-width:1100px;margin:0 auto;padding:0 18px;}
 
 /* TOPBAR */
-.topbar{background:var(--sf);border-bottom:1px solid #FED7AA;position:sticky;top:0;z-index:50;box-shadow:0 1px 8px rgba(249,115,22,.08);}
+.topbar{background:var(--sf);border-bottom:1px solid #FED7AA;position:sticky;top:0;z-index:50;box-shadow:0 2px 12px rgba(249,115,22,.1);}
 .topbar-inner{display:flex;justify-content:space-between;align-items:center;height:62px;}
 .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:20px;color:var(--or);}
 .brand svg{width:28px;height:28px;}
@@ -173,8 +176,9 @@ a{color:inherit;text-decoration:none;}
 .field input,.field select,.field textarea{background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:11px 13px;color:var(--tx);font-family:'Inter',sans-serif;font-size:14px;width:100%;}
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--or);border-color:var(--or);}
 .field textarea{resize:vertical;min-height:100px;}
-.btn-or{width:100%;background:linear-gradient(90deg,var(--or),var(--ord));color:#fff;border:none;border-radius:8px;padding:13px;font-weight:700;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.3px;}
-.btn-or:hover{filter:brightness(1.05);}
+.btn-or{width:100%;background:linear-gradient(90deg,#FF8C00,var(--or),var(--ord));color:#fff;border:none;border-radius:10px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.3px;box-shadow:0 4px 15px rgba(249,115,22,.35);transition:all .2s;}
+.btn-or:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(249,115,22,.45);filter:brightness(1.05);}
+.btn-or:active{transform:translateY(0);}
 .btn-google{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--sf);border:2px solid var(--or);color:var(--or);font-weight:700;padding:12px;border-radius:8px;font-size:14px;width:100%;cursor:pointer;font-family:'Inter',sans-serif;margin-top:10px;}
 .divider-or{text-align:center;color:var(--mu);font-size:12px;margin:12px 0;position:relative;}
 .divider-or::before,.divider-or::after{content:'';position:absolute;top:50%;width:44%;height:1px;background:var(--ln);}
@@ -197,7 +201,7 @@ a{color:inherit;text-decoration:none;}
 .feat-card p{font-size:13px;color:var(--mu);line-height:1.5;}
 
 /* HOW IT WORKS */
-.how-sec{background:linear-gradient(135deg,var(--or),var(--ord));padding:52px 0;color:#fff;position:relative;overflow:hidden;}
+.how-sec{background:linear-gradient(135deg,#FF8C00,var(--or),var(--ord));padding:52px 0;color:#fff;position:relative;overflow:hidden;}
 .how-sec .sec-title,.how-sec .sec-sub{color:#fff;}
 .how-sec .sec-sub{opacity:.85;}
 .steps-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;position:relative;z-index:1;}
@@ -236,8 +240,9 @@ a{color:inherit;text-decoration:none;}
 .dash-page{padding:24px 0 60px;}
 .page-title{font-size:22px;font-weight:800;margin-bottom:20px;color:var(--tx);}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:28px;}
-.stat-card{background:var(--sf);border:1px solid var(--ln);border-radius:var(--ra);padding:18px;display:flex;align-items:center;gap:14px;}
-.stat-icon{width:48px;height:48px;background:var(--orltt);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.stat-card{background:var(--sf);border:1px solid var(--ln);border-radius:var(--ra);padding:18px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 8px rgba(249,115,22,.06);transition:transform .2s,box-shadow .2s;}
+.stat-card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(249,115,22,.12);}
+.stat-icon{width:52px;height:52px;background:linear-gradient(135deg,var(--orltt),#FFEDD5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;box-shadow:0 2px 8px rgba(249,115,22,.15);}
 .stat-label{font-size:12px;color:var(--mu);}
 .stat-val{font-size:20px;font-weight:800;color:var(--or);}
 
@@ -246,7 +251,7 @@ a{color:inherit;text-decoration:none;}
 .search-bar{display:flex;gap:10px;margin-bottom:16px;}
 .search-bar input{flex:1;background:var(--orltt);border:1px solid var(--ln);border-radius:8px;padding:11px 14px;font-size:14px;font-family:'Inter',sans-serif;}
 .search-bar input:focus{outline:2px solid var(--or);}
-.price-display{background:linear-gradient(90deg,var(--or),var(--ord));color:#fff;border-radius:8px;padding:14px 18px;display:flex;align-items:center;gap:12px;margin-bottom:14px;font-size:18px;font-weight:700;}
+.price-display{background:linear-gradient(90deg,#FF8C00,var(--or),var(--ord));color:#fff;border-radius:10px;padding:16px 18px;display:flex;align-items:center;gap:12px;margin-bottom:14px;font-size:20px;font-weight:800;box-shadow:0 4px 15px rgba(249,115,22,.3);}
 .price-display .label{font-size:13px;opacity:.85;font-weight:400;}
 .info-box{background:var(--orltt);border:1px solid var(--ln);border-radius:8px;padding:14px 16px;margin-bottom:16px;}
 .info-box p{font-size:13px;color:var(--ord);line-height:1.6;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;}
@@ -255,8 +260,9 @@ a{color:inherit;text-decoration:none;}
 
 /* ORDERS TABLE */
 .filter-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
-.ftab{background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;color:var(--tx);}
-.ftab.active{background:var(--or);color:#fff;border-color:var(--or);}
+.ftab{background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;color:var(--tx);transition:all .15s;white-space:nowrap;}
+.ftab:hover{border-color:var(--or);color:var(--or);}
+.ftab.active{background:linear-gradient(90deg,var(--or),var(--ord));color:#fff;border-color:var(--or);box-shadow:0 3px 10px rgba(249,115,22,.3);}
 .table-card{background:var(--sf);border:1px solid var(--ln);border-radius:var(--ra);overflow:hidden;}
 .search-orders{display:flex;gap:10px;padding:14px;border-bottom:1px solid var(--ln);}
 .search-orders input{flex:1;background:var(--orltt);border:1px solid var(--ln);border-radius:8px;padding:9px 13px;font-size:13px;font-family:'Inter',sans-serif;}
@@ -782,12 +788,26 @@ def render_balance(user, bal_info, sent=False):
 <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
   <button class="ftab active" onclick="void(0)">{CARD_BANK}</button>
 </div>
-<div class="card-3d">
-  <div class="card-bank-name">💳 {CARD_BANK} Bank</div>
-  <button class="copy-btn" id="copy-btn-el" onclick="copyCard()">Kopyala</button>
-  <div>KART NÖMRƏSİ</div>
-  <div class="card-number-disp" id="card-num-val">{pretty}</div>
-  {holder}
+<div style="position:relative;height:200px;margin-bottom:24px;">
+  <div style="position:absolute;left:50%;transform:translateX(-50%);width:320px;max-width:100%;">
+    <!-- back cards -->
+    <div style="position:absolute;top:10px;left:-12px;width:310px;height:185px;background:linear-gradient(135deg,#6B7280,#374151);border-radius:16px;transform:rotate(-4deg);opacity:.5;"></div>
+    <div style="position:absolute;top:5px;left:-6px;width:310px;height:185px;background:linear-gradient(135deg,#9CA3AF,#4B5563);border-radius:16px;transform:rotate(-2deg);opacity:.7;"></div>
+    <!-- main card -->
+    <div style="position:relative;background:linear-gradient(135deg,#1D4ED8,#1E3A8A,#0F172A);border-radius:16px;padding:22px 22px 18px;color:#fff;box-shadow:0 20px 40px rgba(29,78,216,.35),0 8px 16px rgba(0,0,0,.2);width:310px;max-width:100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <span style="font-size:15px;font-weight:600;opacity:.9;">{CARD_BANK} Bank</span>
+        <div style="width:36px;height:24px;background:linear-gradient(135deg,#FCD34D,#F59E0B);border-radius:4px;"></div>
+      </div>
+      <div style="font-size:11px;opacity:.7;letter-spacing:.1em;margin-bottom:6px;">KART NÖMRƏSİ</div>
+      <div id="card-num-val" style="font-family:'IBM Plex Mono',monospace;font-size:20px;letter-spacing:.12em;margin-bottom:18px;">{pretty}</div>
+      {holder}
+      <div style="position:absolute;top:18px;right:18px;">
+        <button id="copy-btn-el" onclick="copyCard()" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:Inter,sans-serif;">Kopyala</button>
+      </div>
+      <div style="position:absolute;bottom:0;right:0;width:120px;height:120px;background:rgba(255,255,255,.04);border-radius:50%;transform:translate(30%,30%);"></div>
+    </div>
+  </div>
 </div>
 <p style="font-size:13px;color:var(--mu);text-align:center;margin-bottom:16px;">
   20 AZN+ yükləmələrdə +3% Bonus.<br>Terminaldan və ya kartdan-karta ödəniş edə bilərsiniz.
@@ -982,7 +1002,7 @@ def orders_page(request: Request):
     conn=get_conn()
     try:
         c=conn.cursor(cursor_factory=RealDictCursor)
-        c.execute("SELECT o.*,p.name AS product_name FROM orders o JOIN products p ON o.product_id=p.product_id WHERE o.customer_email=%s ORDER BY o.order_id DESC",(user["email"],))
+        c.execute("SELECT o.*,COALESCE(p.name,'Silinmiş xidmət') AS product_name FROM orders o LEFT JOIN products p ON o.product_id=p.product_id WHERE o.customer_email=%s ORDER BY o.order_id DESC",(user["email"],))
         orders=c.fetchall()
     finally: put_conn(conn)
     return HTMLResponse(render_orders(user,get_balance(user["email"]),orders))
@@ -1196,4 +1216,3 @@ def admin_announce(pw:str,title:str=Form(...),content:str=Form(...)):
         conn.commit()
     finally: put_conn(conn)
     return RedirectResponse(url=f"/admin?pw={pw}",status_code=status.HTTP_303_SEE_OTHER)
-
